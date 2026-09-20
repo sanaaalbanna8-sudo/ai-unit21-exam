@@ -12,7 +12,7 @@
  * 6) انسخي رابط /exec والصقيه في js/config.js → sheetsUrl
  */
 
-var SHEET_ID = "PASTE_SHEET_ID_HERE";
+var SHEET_ID = "14emiqybyM1w5wGNDxLkOGFyV6H_NEaann4x_rHkJdVc";
 
 function doGet() {
   return ContentService.createTextOutput("OK");
