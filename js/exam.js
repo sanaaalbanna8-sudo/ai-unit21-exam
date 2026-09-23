@@ -1,644 +1,356 @@
-const $app = document.getElementById("app");
-const TYPE_AR = {
-  tf: "صح / خطأ",
-  mcq: "ضع دائرة · اختيار من متعدد",
-  scenario: "سيناريو تطبيقي",
-};
+(() => {
+  const SHEETS_ENDPOINT = "https://script.google.com/macros/s/AKfycby-_IPkSyPK10Pcg8H9vwFYb3MxjcHjezmxF2K10bSgxp21PFGVELmDzWL3MqNAVVyM/exec";
 
-const BIN_MAP = Object.fromEntries(BINS.map((b) => [b.id, b]));
-const ITEM_MAP = Object.fromEntries(CLASSIFY.map((x) => [x.id, x]));
+  const intro = document.getElementById("intro");
+  const quiz = document.getElementById("quiz");
+  const result = document.getElementById("result");
+  const nameInput = document.getElementById("student-name");
+  const nameField = document.getElementById("name-field");
+  const nameHint = document.getElementById("name-hint");
+  const qCount = document.getElementById("q-count");
+  const examBar = document.getElementById("exam-bar");
+  const qTag = document.getElementById("q-tag");
+  const qTitle = document.getElementById("q-title");
+  const qScene = document.getElementById("q-scene");
+  const qArt = document.getElementById("q-art");
+  const qChoices = document.getElementById("q-choices");
+  const qFeedback = document.getElementById("q-feedback");
+  const qPrev = document.getElementById("q-prev");
+  const qNext = document.getElementById("q-next");
+  const steps = document.getElementById("steps");
+  const saveStatus = document.getElementById("save-status");
 
-const state = {
-  name: "",
-  klass: "",
-  part: 0,
-  classify: {},
-  classifyOrder: [],
-  picked: null,
-  order: [],
-  answers: {},
-  i: 0,
-  startedAt: 0,
-  finishedAt: 0,
-  endsAt: 0,
-  tick: null,
-  submitted: false,
-  timedOut: false,
-  sendNote: "",
-};
+  let deck = [];
+  let i = 0;
+  let studentName = "";
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
+  const sections = Object.keys(window.SECTION_LABELS);
 
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+  function labelOf(choice) {
+    return typeof choice === "string" ? choice : choice.text;
   }
-  return a;
-}
 
-function qAt(i) {
-  return QUESTIONS.find((q) => q.id === state.order[i]);
-}
-
-function classifyPoints() {
-  return CLASSIFY.length;
-}
-
-function part2Points() {
-  return QUESTIONS.reduce((s, q) => s + q.points, 0);
-}
-
-function totalPoints() {
-  return classifyPoints() + part2Points();
-}
-
-function placedCount() {
-  return Object.keys(state.classify).length;
-}
-
-function nowStamp(ms) {
-  return new Date(ms || Date.now()).toLocaleString("ar-JO", { dateStyle: "short", timeStyle: "medium" });
-}
-
-function durationInfo(startMs, endMs) {
-  const totalSec = Math.max(0, Math.round((endMs - startMs) / 1000));
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return {
-    seconds: totalSec,
-    minutes: Math.round((totalSec / 60) * 100) / 100,
-    clock: String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0"),
-    text: m + " دقيقة و " + s + " ثانية",
-  };
-}
-
-function typePercent(details, type) {
-  const rows = details.filter((d) => d.type === type);
-  if (!rows.length) return "";
-  const max = rows.reduce((s, d) => s + d.points, 0);
-  const earned = rows.reduce((s, d) => s + d.earned, 0);
-  return max ? Math.round((earned / max) * 100) : 0;
-}
-
-function joinItems(rows, fmt) {
-  return rows.length ? rows.map(fmt).join("  |  ") : "لا يوجد";
-}
-
-function sheetsUrl() {
-  return String((window.AI21_CLOUD || {}).sheetsUrl || "").trim();
-}
-
-function sendCloud(pack) {
-  const url = sheetsUrl();
-  if (!url) return "missing";
-  const body = JSON.stringify(pack);
-  try {
-    let form = document.getElementById("examCloudForm");
-    if (!form) {
-      form = document.createElement("form");
-      form.id = "examCloudForm";
-      form.method = "POST";
-      form.target = "examSink";
-      form.acceptCharset = "UTF-8";
-      form.style.display = "none";
-      ["payload", "data"].forEach((name) => {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = name;
-        form.appendChild(input);
-      });
-      document.body.appendChild(form);
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let n = a.length - 1; n > 0; n--) {
+      const j = Math.floor(Math.random() * (n + 1));
+      [a[n], a[j]] = [a[j], a[n]];
     }
-    form.action = url;
-    form.querySelector("[name=payload]").value = body;
-    form.querySelector("[name=data]").value = body;
-    form.submit();
-    return "sent";
-  } catch (err) {
-    try {
-      fetch(url, {
-        method: "POST",
-        mode: "no-cors",
-        keepalive: true,
-        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-        body: "payload=" + encodeURIComponent(body),
+    return a;
+  }
+
+  function mapQ(q) {
+    if (q.type === "tf") return { ...q, pick: null };
+    const indexed = q.choices.map((choice, idx) => ({ choice, idx }));
+    const shuffled = shuffle(indexed);
+    return {
+      ...q,
+      choices: shuffled.map((c) => c.choice),
+      answer: shuffled.findIndex((c) => c.idx === q.answer),
+      pick: null
+    };
+  }
+
+  function show(el) {
+    [intro, quiz, result].forEach((n) => { n.hidden = true; });
+    el.hidden = false;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function renderSteps(current) {
+    steps.innerHTML = "";
+    sections.forEach((key) => {
+      const span = document.createElement("span");
+      span.textContent = window.SECTION_LABELS[key];
+      if (key === current) span.className = "on";
+      steps.appendChild(span);
+    });
+  }
+
+  function renderQuiz() {
+    const q = deck[i];
+    const locked = q.pick !== null;
+    const ok = locked && q.pick === q.answer;
+    qCount.textContent = `${i + 1} / ${deck.length}`;
+    examBar.style.width = `${((i + 1) / deck.length) * 100}%`;
+    renderSteps(q.section);
+    qTag.textContent = q.tag;
+    qTitle.textContent = q.ask;
+    qScene.textContent = q.scene;
+    qArt.innerHTML = window.ART.banner(q.art);
+    qChoices.className = "choices" + (q.type === "tf" ? " tf" : "") + (q.type === "cards" ? " cards" : "");
+    qChoices.innerHTML = "";
+
+    q.choices.forEach((choice, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      let cls = "choice";
+      let badge = "";
+      if (locked) {
+        if (idx === q.answer) {
+          cls += " is-correct";
+          badge = "الصح";
+        }
+        if (idx === q.pick && idx !== q.answer) {
+          cls += " is-wrong";
+          badge = "غلط";
+        }
+      }
+      btn.className = cls;
+      btn.disabled = locked;
+      if (q.type === "cards") {
+        const fig = document.createElement("figure");
+        fig.innerHTML = window.ART.icon(choice.art);
+        btn.appendChild(fig);
+      }
+      const text = document.createElement("span");
+      text.textContent = labelOf(choice);
+      btn.appendChild(text);
+      if (badge) {
+        const mark = document.createElement("span");
+        mark.className = "badge";
+        mark.textContent = badge;
+        btn.appendChild(mark);
+      }
+      btn.addEventListener("click", () => {
+        if (q.pick !== null) return;
+        q.pick = idx;
+        renderQuiz();
+        qFeedback.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
-      return "sent";
-    } catch (e2) {
-      return "fail";
+      qChoices.appendChild(btn);
+    });
+
+    if (locked) {
+      const correct = labelOf(q.choices[q.answer]);
+      const skipped = q.pick < 0;
+      const yours = skipped ? "بدون إجابة" : labelOf(q.choices[q.pick]);
+      qFeedback.hidden = false;
+      qFeedback.className = "feedback " + (ok ? "ok" : "bad");
+      qFeedback.innerHTML = ok
+        ? `<strong>صح.</strong> ${q.why}`
+        : skipped
+          ? `<strong>غلط.</strong> ما اخترت إجابة، فانحسبت غلط.<div class="right-line">الصح: ${correct}</div><p>${q.why}</p>`
+          : `<strong>غلط.</strong> اختيارك: ${yours}<div class="right-line">الصح: ${correct}</div><p>${q.why}</p>`;
+    } else {
+      qFeedback.hidden = true;
+      qFeedback.innerHTML = "";
     }
+
+    qPrev.disabled = i === 0;
+    qNext.textContent = i === deck.length - 1 ? "إنهاء ومراجعة الأخطاء" : "التالي";
   }
-}
 
-function gradeClassify() {
-  return CLASSIFY.map((item, i) => {
-    const chosenId = state.classify[item.id];
-    const chosen = chosenId ? BIN_MAP[chosenId] : null;
-    const correct = BIN_MAP[item.cat];
-    const ok = chosenId === item.cat;
-    return {
-      num: i + 1,
-      id: item.id,
-      type: "classify",
-      typeAr: "سحب وإفلات",
-      topic: correct.name,
-      points: 1,
-      prompt: "صنّف: " + item.name,
-      chosen: chosen ? chosen.name : "لم يصنّف",
-      correctText: correct.name,
-      result: !chosenId ? "لم يجب" : (ok ? "صحيح" : "خطأ"),
-      earned: ok ? 1 : 0,
-      explain: item.name + " تنتمي إلى «" + correct.name + "».",
-    };
-  });
-}
-
-function gradePart2() {
-  return state.order.map((id, i) => {
-    const q = QUESTIONS.find((x) => x.id === id);
-    const chosenId = state.answers[q.id];
-    const chosen = q.options.find((o) => o.id === chosenId);
-    const correct = q.options.find((o) => o.ok);
-    const ok = Boolean(chosenId && correct && chosenId === correct.id);
-    return {
-      num: i + 1,
-      id: q.id,
-      type: q.type,
-      typeAr: TYPE_AR[q.type],
-      topic: q.topic,
-      points: q.points,
-      prompt: q.prompt,
-      chosen: chosen ? chosen.text : "لم يجب",
-      correctText: correct ? correct.text : "",
-      result: !chosenId ? "لم يجب" : (ok ? "صحيح" : "خطأ"),
-      earned: ok ? q.points : 0,
-      explain: q.explain,
-    };
-  });
-}
-
-function grade() {
-  const classifyDetails = gradeClassify();
-  const part2Details = gradePart2();
-  const details = classifyDetails.concat(part2Details);
-  const p1Earned = classifyDetails.reduce((s, d) => s + d.earned, 0);
-  const p1Max = classifyPoints();
-  const p2Earned = part2Details.reduce((s, d) => s + d.earned, 0);
-  const p2Max = part2Points();
-  const earned = p1Earned + p2Earned;
-  const max = totalPoints();
-  const percent = max ? Math.round((earned / max) * 100) : 0;
-  const percentP1 = p1Max ? Math.round((p1Earned / p1Max) * 100) : 0;
-  const percentP2 = p2Max ? Math.round((p2Earned / p2Max) * 100) : 0;
-  const correct = details.filter((d) => d.result === "صحيح").length;
-  const wrong = details.filter((d) => d.result === "خطأ").length;
-  const skipped = details.filter((d) => d.result === "لم يجب").length;
-  const weak = {};
-  details.forEach((d) => {
-    if (d.result !== "صحيح") weak[d.topic] = (weak[d.topic] || 0) + 1;
-  });
-  const weakTopics = Object.entries(weak).sort((a, b) => b[1] - a[1]).map(([t, n]) => t + " (" + n + ")");
-  let band = "الفهم يحتاج تعزيزًا — راجع خريطة موضوعات العرض من التعريف إلى القطاعات ثم أعد المحاولة.";
-  if (percent >= 85) band = "أتقنتِ الوحدة: تميّزين الأنواع والمجموعات والتطبيقات والقطاعات بفهم لا بحفظ.";
-  else if (percent >= 70) band = "فهم جيد مع ثغرات. راجعي الموضوعات الضعيفة أدناه من العرض.";
-  else if (percent >= 50) band = "بداية تمييز للمفاهيم، لكن الربط بين السيناريو والنوع/التطبيق يحتاج تثبيتًا.";
-  return {
-    details, classifyDetails, part2Details,
-    p1Earned, p1Max, p2Earned, p2Max, percentP1, percentP2,
-    earned, max, percent, correct, wrong, skipped, weakTopics, band,
-  };
-}
-
-function examPayload(g) {
-  const finishedAt = state.finishedAt || Date.now();
-  const dur = durationInfo(state.startedAt, finishedAt);
-  const errors = g.details.filter((d) => d.result === "خطأ");
-  const blanks = g.details.filter((d) => d.result === "لم يجب");
-  const goods = g.details.filter((d) => d.result === "صحيح");
-  return {
-    kind: "ai-unit21",
-    name: state.name,
-    klass: state.klass,
-    when: nowStamp(finishedAt),
-    startedAt: nowStamp(state.startedAt),
-    finishedAt: nowStamp(finishedAt),
-    durationSeconds: dur.seconds,
-    durationMinutes: dur.minutes,
-    durationClock: dur.clock,
-    durationText: dur.text,
-    allowedMinutes: EXAM.minutes,
-    submitType: state.timedOut ? "انتهى الوقت — تسليم تلقائي" : "تسليم يدوي",
-    minutes: EXAM.minutes,
-    correct: g.correct,
-    wrong: g.wrong,
-    skipped: g.skipped,
-    answered: g.correct + g.wrong,
-    total: CLASSIFY.length + QUESTIONS.length,
-    points: g.earned,
-    maxPoints: g.max,
-    percent: g.percent,
-    percentPart1: g.percentP1,
-    percentPart2: g.percentP2,
-    pointsPart1: g.p1Earned,
-    maxPart1: g.p1Max,
-    pointsPart2: g.p2Earned,
-    maxPart2: g.p2Max,
-    percentTf: typePercent(g.part2Details, "tf"),
-    percentMcq: typePercent(g.part2Details, "mcq"),
-    percentScenario: typePercent(g.part2Details, "scenario"),
-    percentClassify: g.percentP1,
-    band: g.band,
-    weakTopics: g.weakTopics.join("، ") || "لا يوجد",
-    errorSummary: joinItems(errors, (d) =>
-      (d.type === "classify" ? "تصنيف " : "س") + d.num + " [" + d.topic + "] أجاب: " + d.chosen + " | الصحيح: " + d.correctText
-    ),
-    skippedSummary: joinItems(blanks, (d) =>
-      (d.type === "classify" ? "تصنيف " : "س") + d.num + " [" + d.topic + "] " + d.prompt
-    ),
-    correctSummary: joinItems(goods, (d) =>
-      (d.type === "classify" ? "تصنيف " : "س") + d.num + " [" + d.topic + "]"
-    ),
-    classifySummary: joinItems(g.classifyDetails, (d) =>
-      d.prompt.replace("صنّف: ", "") + " → " + d.chosen + (d.result === "صحيح" ? " ✓" : " ✗ (" + d.correctText + ")")
-    ),
-    details: g.details,
-    classifyDetails: g.classifyDetails,
-  };
-}
-
-function setPartBadge(text) {
-  const el = document.getElementById("part-badge");
-  if (!el) return;
-  if (!text) {
-    el.classList.add("hidden");
-    el.textContent = "";
-    return;
+  function statsBy(all, keyName) {
+    const map = {};
+    all.forEach((q) => {
+      const key = q[keyName];
+      if (!map[key]) map[key] = { ok: 0, total: 0 };
+      map[key].total += 1;
+      if (q.pick === q.answer) map[key].ok += 1;
+    });
+    return map;
   }
-  el.textContent = text;
-  el.classList.remove("hidden");
-}
 
-function renderStart() {
-  document.body.classList.add("is-start");
-  const n1 = CLASSIFY.length;
-  const n2 = QUESTIONS.length;
-  $app.innerHTML = `
-    <div class="start-fit">
-      <p class="kicker">${esc(EXAM.unit)}</p>
-      <h1>${esc(EXAM.title)}</h1>
-      <p class="lead">امتحان ويب يقيس الفهم لا الحفظ: سحب وإفلات، ثم ضع دائرة وصح/خطأ وسيناريوهات من عرض الوحدة 21.</p>
-      <div class="grid start-stats">
-        <div class="stat"><b>جزآن</b> تصنيف ثم فهم</div>
-        <div class="stat"><b>${n1 + n2}</b> بندًا · ${totalPoints()} درجة</div>
-        <div class="stat"><b>${EXAM.minutes} د</b> ثم تسليم تلقائي</div>
-      </div>
-      <article class="panel start-panel">
-        <h2>قبل أن تبدئي</h2>
-        <ul>
-          <li><strong>الجزء الأول:</strong> اسحبي البطاقة إلى الصندوق الصحيح (تنبؤ · شاذ · محادثة · تنقيب)، أو اضغطي البطاقة ثم الصندوق.</li>
-          <li>يمكنكِ إعادة البطاقة للمجموعة بالضغط عليها داخل الصندوق.</li>
-          <li>بعد إنهاء التصنيف لا يمكن الرجوع لتعديله.</li>
-          <li><strong>الجزء الثاني:</strong> اختاري إجابة (ضع دائرة) أو صح/خطأ. تنقّلي بحرية قبل التسليم.</li>
-          <li>عند التسليم تُحفظ النتيجة تلقائيًا في جدول المعلمة (إن ضُبط الرابط).</li>
-        </ul>
-        <form id="start-form">
-          <div class="form-row">
-            <label>اسم الطالبة <input id="nm" required autocomplete="name" /></label>
-            <label>الشعبة / الصف <input id="kl" placeholder="مثال: 12 ت" /></label>
-          </div>
-          <small class="err hidden" id="err">اكتبي الاسم للبدء.</small>
-          <button class="btn" type="submit">بدء الامتحان</button>
-        </form>
-      </article>
-    </div>
-  `;
-  $app.querySelector("#start-form").onsubmit = (e) => {
-    e.preventDefault();
-    const name = $app.querySelector("#nm").value.trim();
-    if (!name) {
-      $app.querySelector("#err").classList.remove("hidden");
+  function reviewItem(q, n) {
+    const ok = q.pick === q.answer;
+    const item = document.createElement("article");
+    item.className = "item " + (ok ? "ok" : "bad");
+    const yours = q.pick === null || q.pick < 0 ? "بدون إجابة" : labelOf(q.choices[q.pick]);
+    const correct = labelOf(q.choices[q.answer]);
+    item.innerHTML = `
+      <h3>${n}. ${q.tag}</h3>
+      <p>${q.ask}</p>
+      <p>إجابتك: <b class="${ok ? "good" : "badw"}">${yours}</b></p>
+      <p>الصح: <b class="good">${correct}</b></p>
+      <p>${q.why}</p>
+    `;
+    return item;
+  }
+
+  function fillReview(all) {
+    const mistakes = document.getElementById("mistake-list");
+    const full = document.getElementById("review-list");
+    mistakes.innerHTML = "";
+    full.innerHTML = "";
+    const wrong = all.filter((q) => q.pick !== q.answer);
+    if (!wrong.length) {
+      const item = document.createElement("article");
+      item.className = "item ok";
+      item.innerHTML = "<h3>ما في أخطاء</h3><p>المفاهيم والأمثلة والقطاعات واضحة.</p>";
+      mistakes.appendChild(item);
+    } else {
+      wrong.forEach((q) => mistakes.appendChild(reviewItem(q, q.id)));
+    }
+    all.forEach((q, n) => full.appendChild(reviewItem(q, n + 1)));
+  }
+
+  function requireName() {
+    const name = nameInput.value.trim();
+    if (name.length < 2) {
+      nameField.classList.add("is-invalid");
+      nameHint.textContent = "اكتب الاسم الثلاثي قبل البدء";
+      nameInput.focus();
+      return null;
+    }
+    nameField.classList.remove("is-invalid");
+    nameHint.textContent = "الاسم إجباري حتى تنحفظ الأخطاء لاحقًا في الجدول";
+    return name;
+  }
+
+  function setSaveStatus(kind, text) {
+    saveStatus.hidden = false;
+    saveStatus.className = "save " + kind;
+    saveStatus.textContent = text;
+  }
+
+  function frac(map, key) {
+    const s = map[key] || { ok: 0, total: 0 };
+    return `${s.ok}/${s.total}`;
+  }
+
+  function submitToSheet(payload) {
+    if (!SHEETS_ENDPOINT) {
+      setSaveStatus("wait", "الدرجة وتفاصيل الأخطاء ظاهرة هنا. حفظ الجدول يتفعل بعد ربط Apps Script.");
       return;
     }
-    state.name = name;
-    state.klass = $app.querySelector("#kl").value.trim();
-    startExam();
-  };
-}
+    setSaveStatus("wait", "جاري حفظ الدرجة وتفاصيل الأخطاء…");
+    fetch(SHEETS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    })
+      .then(() => setSaveStatus("ok", "تم حفظ الدرجة وتفاصيل الأخطاء في الجدول."))
+      .catch(() => setSaveStatus("bad", "تعذّر الحفظ. الدرجة ظاهرة هنا، وتحققي من رابط الجدول والاتصال."));
+  }
 
-function startExam() {
-  document.body.classList.remove("is-start");
-  state.classifyOrder = shuffle(CLASSIFY.map((x) => x.id));
-  state.classify = {};
-  state.picked = null;
-  state.order = shuffle(QUESTIONS.map((q) => q.id));
-  QUESTIONS.forEach((q) => {
-    if (q.type !== "tf") q.options = shuffle(q.options);
+  function finishAll() {
+    const score = deck.filter((q) => q.pick === q.answer).length;
+    const total = deck.length;
+    const pct = Math.round((score / total) * 100);
+    const name = studentName || nameInput.value.trim();
+    document.getElementById("final-score").textContent = `${score}/${total}`;
+    document.getElementById("score-ring").style.setProperty("--p", `${pct}%`);
+
+    let title = "راجع النقاط الضعيفة";
+    let msg = "ركّز على المحاور اللي نزلت فيها: الأنواع، القطاعات، أو الفوائد والمخاطر.";
+    if (pct >= 90) {
+      title = "فهمك واضح";
+      msg = "ميّزت المفاهيم والأمثلة والفوائد والمخاطر.";
+    } else if (pct >= 75) {
+      title = "أساس جيد مع فجوات صغيرة";
+      msg = "راجع الأسئلة الغلط في القائمة تحت.";
+    } else if (pct >= 50) {
+      title = "ثبّت المصطلح والأمثلة";
+      msg = "راجع الأنواع، وأمثلة القطاعات، والفرق بين الفائدة والخطر.";
+    }
+    document.getElementById("result-title").textContent = title;
+    const resultMsg = document.getElementById("result-msg");
+    const who = name ? `${name}: ` : "";
+    resultMsg.replaceChildren();
+    resultMsg.append(document.createTextNode(`${who}${msg} النتيجة `));
+    const pctNode = document.createElement("bdi");
+    pctNode.textContent = `${pct}٪`;
+    resultMsg.append(pctNode, document.createTextNode("."));
+
+    const bySection = statsBy(deck, "section");
+    const box = document.getElementById("breakdown");
+    box.innerHTML = "";
+    Object.keys(window.SECTION_LABELS).forEach((key) => {
+      const s = bySection[key];
+      if (!s) return;
+      const card = document.createElement("article");
+      card.className = "stat";
+      const ready = s.ok / s.total >= 0.75 ? "جاهز" : "يحتاج مراجعة";
+      card.innerHTML = `<h3>${window.SECTION_LABELS[key]}</h3><p>${s.ok}/${s.total}</p><small>${ready}</small>`;
+      box.appendChild(card);
+    });
+
+    fillReview(deck);
+    show(result);
+
+    const answers = deck.map((q) => {
+      const skipped = q.pick === null || q.pick < 0;
+      const ok = q.pick === q.answer;
+      return {
+        id: q.id,
+        section: window.SECTION_LABELS[q.section],
+        grade: q.grade,
+        tag: q.tag,
+        ask: q.ask,
+        picked: skipped ? "بدون إجابة" : labelOf(q.choices[q.pick]),
+        correct: labelOf(q.choices[q.answer]),
+        result: ok ? "صح" : "غلط",
+        why: q.why
+      };
+    });
+    const mistakes = answers.filter((row) => row.result !== "صح");
+
+    submitToSheet({
+      timestamp: new Date().toLocaleString("ar-JO", { hour12: false }),
+      name,
+      score,
+      total,
+      percent: pct,
+      concepts: frac(bySection, "concepts"),
+      sectors: frac(bySection, "sectors"),
+      impact: frac(bySection, "impact"),
+      factors: frac(bySection, "factors"),
+      mistakeCount: mistakes.length,
+      skipped: answers.filter((row) => row.picked === "بدون إجابة").length,
+      mistakes,
+      answers
+    });
+  }
+
+  function startExam() {
+    const name = requireName();
+    if (!name) return;
+    studentName = name;
+    deck = window.QUESTION_BANK.map(mapQ);
+    i = 0;
+    saveStatus.hidden = true;
+    show(quiz);
+    renderQuiz();
+  }
+
+  const meta = document.getElementById("intro-meta");
+  const counts = statsBy(window.QUESTION_BANK.map((q) => ({ ...q, pick: null, answer: -1 })), "section");
+  sections.forEach((key) => {
+    const li = document.createElement("li");
+    li.textContent = `${window.SECTION_LABELS[key]}: ${counts[key].total} سؤال`;
+    meta.appendChild(li);
   });
-  state.answers = {};
-  state.i = 0;
-  state.part = 1;
-  state.submitted = false;
-  state.timedOut = false;
-  state.startedAt = Date.now();
-  state.finishedAt = 0;
-  state.endsAt = state.startedAt + EXAM.minutes * 60 * 1000;
-  document.getElementById("timer-box").classList.remove("hidden");
-  if (state.tick) clearInterval(state.tick);
-  state.tick = setInterval(updateTimer, 250);
-  updateTimer();
-  renderClassify();
-}
+  const totalLi = document.createElement("li");
+  totalLi.textContent = `${window.QUESTION_BANK.length} سؤالًا · الغلط والصح يظهران فور الضغط`;
+  meta.appendChild(totalLi);
 
-function updateTimer() {
-  const left = Math.max(0, state.endsAt - Date.now());
-  const m = Math.floor(left / 60000);
-  const s = Math.floor((left % 60000) / 1000);
-  const el = document.getElementById("timer");
-  if (el) el.textContent = String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
-  const box = document.getElementById("timer-box");
-  if (box) box.classList.toggle("warn", left < 5 * 60 * 1000);
-  if (left <= 0 && !state.submitted) submitExam(true);
-}
-
-function placeItem(itemId, binId) {
-  if (!ITEM_MAP[itemId] || !BIN_MAP[binId]) return;
-  state.classify[itemId] = binId;
-  state.picked = null;
-  renderClassify();
-}
-
-function unplaceItem(itemId) {
-  delete state.classify[itemId];
-  state.picked = null;
-  renderClassify();
-}
-
-function renderClassify() {
-  setPartBadge("الجزء 1 · سحب وإفلات");
-  const n = CLASSIFY.length;
-  const done = placedCount();
-  const pool = state.classifyOrder.filter((id) => !state.classify[id]);
-  $app.innerHTML = `
-    <div class="meta">
-      <span class="badge">سحب وإفلات · ${n} أمثلة · ${n} درجات</span>
-      <span>صُنِّف ${done} من ${n}</span>
-    </div>
-    <article class="panel classify-intro">
-      <h2>ضعي كل مثال في نوع التطبيق الصحيح</h2>
-      <p class="lead">اسحبي البطاقة إلى الصندوق، أو اضغطي البطاقة ثم الصندوق. اضغطي البطاقة داخل الصندوق لإعادتها.</p>
-    </article>
-    <div class="pool ${pool.length ? "" : "pool-empty"}" id="pool" data-bin="">
-      ${pool.length
-        ? pool.map((id) => chipHtml(id)).join("")
-        : `<p class="pool-msg">صُنِّف كل البنود. راجعي الصناديق ثم انتقلي للجزء الثاني.</p>`}
-    </div>
-    <div class="bins bins-4">
-      ${BINS.map((bin) => {
-        const items = state.classifyOrder.filter((id) => state.classify[id] === bin.id);
-        return `
-          <section class="bin tone-${bin.tone}" data-bin="${bin.id}">
-            <header>
-              <h3>${esc(bin.name)}</h3>
-              <small>${esc(bin.nameEn)} · ${items.length}</small>
-            </header>
-            <div class="bin-drop">
-              ${items.length ? items.map((id) => chipHtml(id, true)).join("") : `<span class="bin-hint">أفلتي هنا</span>`}
-            </div>
-          </section>
-        `;
-      }).join("")}
-    </div>
-    <div class="pager">
-      <span class="hint-inline">${state.picked ? "اختاري الصندوق الآن، أو اضغطي البطاقة مرة أخرى للإلغاء." : ""}</span>
-      <button class="btn" id="to-part2">${done < n ? "متابعة وفي بنود غير مصنّفة" : "إنهاء التصنيف والانتقال للفهم"}</button>
-    </div>
-  `;
-  bindClassifyEvents();
-  $app.querySelector("#to-part2").onclick = () => {
-    if (done < n) renderClassifyConfirm();
-    else startPart2();
-  };
-}
-
-function chipHtml(id, inBin) {
-  const item = ITEM_MAP[id];
-  const on = state.picked === id ? " on" : "";
-  const placed = inBin ? " in-bin" : "";
-  return `<button type="button" class="chip${on}${placed}" draggable="true" data-chip="${id}">${esc(item.name)}</button>`;
-}
-
-function bindClassifyEvents() {
-  $app.querySelectorAll("[data-chip]").forEach((el) => {
-    const id = el.dataset.chip;
-    el.onclick = (e) => {
-      e.stopPropagation();
-      if (el.dataset.dragged === "1") {
-        el.dataset.dragged = "";
-        return;
-      }
-      if (state.classify[id]) {
-        unplaceItem(id);
-        return;
-      }
-      state.picked = state.picked === id ? null : id;
-      renderClassify();
-    };
-    el.addEventListener("dragstart", (e) => {
-      state.picked = id;
-      el.dataset.dragged = "1";
-      e.dataTransfer.setData("text/plain", id);
-      e.dataTransfer.effectAllowed = "move";
-      el.classList.add("dragging");
-    });
-    el.addEventListener("dragend", () => {
-      el.classList.remove("dragging");
-      setTimeout(() => { el.dataset.dragged = ""; }, 0);
-    });
+  document.getElementById("start-exam").addEventListener("click", startExam);
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") startExam();
   });
-
-  const zones = $app.querySelectorAll(".bin, #pool");
-  zones.forEach((zone) => {
-    zone.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      zone.classList.add("over");
-    });
-    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-    zone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      zone.classList.remove("over");
-      const id = e.dataTransfer.getData("text/plain") || state.picked;
-      const binId = zone.getAttribute("data-bin") || "";
-      if (!id) return;
-      if (!binId) unplaceItem(id);
-      else placeItem(id, binId);
-    });
-    if (zone.classList.contains("bin")) {
-      zone.addEventListener("click", () => {
-        if (state.picked && !state.classify[state.picked]) {
-          placeItem(state.picked, zone.getAttribute("data-bin"));
-        }
-      });
+  nameInput.addEventListener("input", () => {
+    if (nameInput.value.trim().length >= 2) nameField.classList.remove("is-invalid");
+  });
+  qPrev.addEventListener("click", () => {
+    if (i > 0) {
+      i -= 1;
+      renderQuiz();
     }
   });
-}
-
-function renderClassifyConfirm() {
-  const n = CLASSIFY.length;
-  const done = placedCount();
-  $app.innerHTML = `
-    <h1>إنهاء الجزء الأول؟</h1>
-    <p class="lead">تم تصنيف ${done} من ${n}. البنود غير المصنّفة تُحسب صفرًا، ولا يمكن تعديل التصنيف بعد المتابعة.</p>
-    <div class="pager">
-      <button class="btn ghost" id="back">العودة للتصنيف</button>
-      <button class="btn" id="go">تأكيد والانتقال للجزء الثاني</button>
-    </div>
-  `;
-  $app.querySelector("#back").onclick = () => renderClassify();
-  $app.querySelector("#go").onclick = () => startPart2();
-}
-
-function startPart2() {
-  state.part = 2;
-  state.picked = null;
-  state.i = 0;
-  renderQuestion();
-}
-
-function renderQuestion() {
-  setPartBadge("الجزء 2 · ضع دائرة / صح وخطأ");
-  const q = qAt(state.i);
-  const n = state.order.length;
-  const chosen = state.answers[q.id];
-  const tfClass = q.type === "tf" ? " tf-choices" : "";
-  $app.innerHTML = `
-    <div class="meta">
-      <span class="badge">${TYPE_AR[q.type]} · ${esc(q.topic)} · ${q.points} درجة</span>
-      <span>سؤال ${state.i + 1} من ${n} · أُجيب ${Object.keys(state.answers).length}/${n}</span>
-    </div>
-    <article class="panel">
-      <h2>${esc(q.prompt)}</h2>
-      <div class="choices-wrap${tfClass}">
-        ${q.options.map((o) => `
-          <button type="button" class="choice ${chosen === o.id ? "on" : ""}" data-opt="${o.id}">
-            <span class="choice-mark" aria-hidden="true"></span>
-            <span>${esc(o.text)}</span>
-          </button>
-        `).join("")}
-      </div>
-      <div class="pager">
-        <button class="btn ghost" id="prev" ${state.i === 0 ? "disabled" : ""}>السابق</button>
-        <button class="btn" id="next">${state.i === n - 1 ? "مراجعة التسليم" : "التالي"}</button>
-      </div>
-    </article>
-    <div class="dots" id="dots"></div>
-    <p style="margin-top:16px"><button class="btn danger" id="finish">تسليم الامتحان الآن</button></p>
-  `;
-  const dots = $app.querySelector("#dots");
-  state.order.forEach((id, idx) => {
-    const b = document.createElement("button");
-    b.textContent = idx + 1;
-    if (idx === state.i) b.classList.add("now");
-    if (state.answers[id]) b.classList.add("done");
-    b.onclick = () => { state.i = idx; renderQuestion(); };
-    dots.appendChild(b);
+  qNext.addEventListener("click", () => {
+    if (deck[i].pick === null) {
+      deck[i].pick = -1;
+      renderQuiz();
+      qFeedback.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+    if (i < deck.length - 1) {
+      i += 1;
+      renderQuiz();
+      return;
+    }
+    finishAll();
   });
-  $app.querySelectorAll("[data-opt]").forEach((btn) => {
-    btn.onclick = () => {
-      state.answers[q.id] = btn.dataset.opt;
-      renderQuestion();
-    };
-  });
-  $app.querySelector("#prev").onclick = () => { state.i = Math.max(0, state.i - 1); renderQuestion(); };
-  $app.querySelector("#next").onclick = () => {
-    if (state.i === n - 1) renderConfirm();
-    else { state.i += 1; renderQuestion(); }
-  };
-  $app.querySelector("#finish").onclick = () => renderConfirm();
-}
-
-function renderConfirm() {
-  setPartBadge("تسليم");
-  const n = QUESTIONS.length;
-  const done = Object.keys(state.answers).length;
-  const cDone = placedCount();
-  $app.innerHTML = `
-    <h1>تسليم الامتحان</h1>
-    <p class="lead">التصنيف: ${cDone} من ${CLASSIFY.length}. الفهم: ${done} من ${n}. البنود الفارغة تُحسب صفرًا. بعد التسليم تُرسل النتيجة ولا يُعاد فتح التصنيف.</p>
-    <div class="pager">
-      <button class="btn ghost" id="back">العودة لأسئلة الفهم</button>
-      <button class="btn danger" id="go">تأكيد التسليم</button>
-    </div>
-  `;
-  $app.querySelector("#back").onclick = () => renderQuestion();
-  $app.querySelector("#go").onclick = () => submitExam(false);
-}
-
-function submitExam(timedOut) {
-  if (state.submitted) return;
-  state.submitted = true;
-  state.timedOut = Boolean(timedOut);
-  state.finishedAt = Date.now();
-  if (state.tick) clearInterval(state.tick);
-  const box = document.getElementById("timer-box");
-  if (box) box.classList.add("hidden");
-  setPartBadge("");
-  const g = grade();
-  g.duration = durationInfo(state.startedAt, state.finishedAt);
-  g.timedOut = state.timedOut;
-  state.sendNote = sendCloud(examPayload(g));
-  renderResult(g);
-}
-
-function renderResult(g) {
-  let send;
-  if (state.sendNote === "sent") {
-    send = `<p class="send-status ok">تم إرسال البيانات إلى السحابة. إن لم تظهر في الجدول خلال دقيقة: تأكدي أن نشر Apps Script على Anyone.</p>`;
-  } else if (state.sendNote === "missing") {
-    send = `<p class="send-status bad">لم يُضبط رابط الجدول بعد (js/config.js). سجّلي الدرجة يدويًا: ${g.percent}% (${g.earned}/${g.max}).</p>`;
-  } else {
-    send = `<p class="send-status bad">تعذّر حفظ البيانات. أخبري المعلمة بالاسم والدرجة ${g.percent}%.</p>`;
-  }
-  $app.innerHTML = `
-    <p class="kicker">نتيجة ${esc(state.name)}</p>
-    <h1>هل اكتمل فهم استخدامات وتطبيقات الذكاء الاصطناعي؟</h1>
-    <div class="score-ring" style="--p:${g.percent}"><span>${g.earned}/${g.max}</span></div>
-    <p class="band">${g.percent}% · ${g.correct} صحيحة · ${g.wrong} خطأ · ${g.skipped} بلا إجابة · المدة ${esc(g.duration.text)}</p>
-    <div class="grid start-stats result-parts">
-      <div class="stat"><b>${g.percentP1}%</b> الجزء 1 · سحب وإفلات ${g.p1Earned}/${g.p1Max}</div>
-      <div class="stat"><b>${g.percentP2}%</b> الجزء 2 · الفهم ${g.p2Earned}/${g.p2Max}</div>
-    </div>
-    <p class="lead" style="text-align:center">${esc(g.band)}</p>
-    ${send}
-    ${g.weakTopics.length ? `<article class="panel"><strong>موضوعات تحتاج مراجعة:</strong> ${esc(g.weakTopics.join("، "))}</article>` : ""}
-    <h2>مراجعة التصنيف</h2>
-    <div class="review">
-      ${g.classifyDetails.map((d) => `
-        <article class="${d.result === "صحيح" ? "good" : "bad"}">
-          <h3>${esc(d.prompt)} · ${esc(d.result)} · ${d.earned}/${d.points}</h3>
-          <p><strong>وضعكِ:</strong> ${esc(d.chosen)}</p>
-          <p><strong>الأصح:</strong> ${esc(d.correctText)}</p>
-        </article>
-      `).join("")}
-    </div>
-    <h2>مراجعة الفهم</h2>
-    <div class="review">
-      ${g.part2Details.map((d, i) => `
-        <article class="${d.result === "صحيح" ? "good" : "bad"}">
-          <h3>${i + 1}. ${esc(d.typeAr)} · ${esc(d.result)} · ${d.earned}/${d.points}</h3>
-          <p>${esc(d.prompt)}</p>
-          <p><strong>إجابتكِ:</strong> ${esc(d.chosen)}</p>
-          <p><strong>الأصح:</strong> ${esc(d.correctText)}</p>
-          <p>${esc(d.explain)}</p>
-        </article>
-      `).join("")}
-    </div>
-  `;
-}
-
-renderStart();
+  document.getElementById("retry-btn").addEventListener("click", () => show(intro));
+})();

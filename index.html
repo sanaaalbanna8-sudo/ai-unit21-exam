@@ -3,34 +3,91 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>امتحان | استخدامات وتطبيقات الذكاء الاصطناعي</title>
+  <title>الوحدة 21 · استخدامات الذكاء الاصطناعي</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=1" />
+  <link rel="stylesheet" href="css/exam.css?v=3" />
 </head>
 <body>
-  <header class="topbar">
+  <header class="top">
     <div class="brand">
-      <span class="mark">امتحان</span>
+      <span class="mark">21</span>
       <span>
-        <strong>استخدامات وتطبيقات الذكاء الاصطناعي</strong>
-        <small>الوحدة 21 · A1 Uses and applications of AI</small>
+        <b>الوحدة 21 · استخدامات الذكاء الاصطناعي</b>
+        <small>مفاهيم، قطاعات، فوائد ومخاطر، وعوامل التنفيذ</small>
       </span>
     </div>
-    <div class="topbar-tools">
-      <span class="part-badge hidden" id="part-badge"></span>
-      <div class="timer-box hidden" id="timer-box">
-        <span>الوقت المتبقي</span>
-        <b id="timer">40:00</b>
-      </div>
-    </div>
+    <span class="pill">سيناريوهات وأمثلة</span>
   </header>
-  <main class="shell" id="app"></main>
-  <p class="footer">Unit 21 · A1 Uses and applications of AI<br />Sanaa albanna</p>
-  <iframe name="examSink" id="examSink" title="sheets" hidden></iframe>
-  <script src="js/config.js?v=1"></script>
-  <script src="js/questions.js?v=1"></script>
-  <script src="js/exam.js?v=1"></script>
+
+  <main class="wrap">
+    <section class="card" id="intro">
+      <span class="pill">مراجعة الوحدة</span>
+      <h1>شو فهمت من استخدامات الذكاء الاصطناعي؟</h1>
+      <p class="lead">
+        أسئلة سيناريوهات من الدروس: المفاهيم، القطاعات، الفوائد والمخاطر، وعوامل التنفيذ.
+        كل ضغطة تبيّن فورًا إذا كانت غلط، وتُظهر الإجابة الصح وسببها.
+        إذا ضغطت التالي بدون اختيار، السؤال يُحسب غلط وتظهر الإجابة الصح.
+      </p>
+
+      <ul class="meta" id="intro-meta"></ul>
+
+      <label class="name" id="name-field">
+        اسم الطالب <span class="req">*</span>
+        <input type="text" id="student-name" placeholder="اكتب اسمك الثلاثي…" autocomplete="name" maxlength="80" />
+        <small id="name-hint">الاسم إجباري حتى تنحفظ الأخطاء لاحقًا في الجدول</small>
+      </label>
+      <button class="start" id="start-exam" type="button">ابدأ الامتحان</button>
+    </section>
+
+    <section class="card" id="quiz" hidden>
+      <div class="steps" id="steps"></div>
+      <div class="progress-row">
+        <b id="q-count">1 / 1</b>
+        <div class="bar"><i id="exam-bar"></i></div>
+      </div>
+      <div class="art" id="q-art"></div>
+      <div class="tag" id="q-tag"></div>
+      <p class="scene" id="q-scene"></p>
+      <h2 id="q-title"></h2>
+      <div class="choices" id="q-choices"></div>
+      <div class="feedback" id="q-feedback" hidden></div>
+      <div class="nav">
+        <button class="ghost" id="q-prev" type="button">السابق</button>
+        <button class="start" id="q-next" type="button">التالي</button>
+      </div>
+    </section>
+
+    <section class="card" id="result" hidden>
+      <span class="pill">النتيجة</span>
+      <div class="score" id="score-ring"><b id="final-score">0</b></div>
+      <h2 id="result-title">انتهى التجهيز</h2>
+      <p class="lead" id="result-msg"></p>
+      <p class="save" id="save-status" hidden></p>
+      <div class="grid" id="breakdown"></div>
+
+      <div class="review-block">
+        <h2>وين أخطأت؟</h2>
+        <p class="lead">هذي الأسئلة التي تحتاج تراجعها.</p>
+        <div class="review" id="mistake-list"></div>
+      </div>
+
+      <div class="review-block">
+        <h2>مراجعة كل الإجابات</h2>
+        <div class="review" id="review-list"></div>
+      </div>
+
+      <div class="nav" style="justify-content:center">
+        <button class="start" id="retry-btn" type="button">أعد الامتحان</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="copy">جميع الحقوق محفوظة © Sanaa Albanna</footer>
+
+  <script src="js/art.js"></script>
+  <script src="js/questions.js"></script>
+  <script src="js/exam.js"></script>
 </body>
 </html>
