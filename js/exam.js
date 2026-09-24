@@ -322,7 +322,7 @@
     meta.appendChild(li);
   });
   const totalLi = document.createElement("li");
-  totalLi.textContent = `${window.QUESTION_BANK.length} سؤالًا · الغلط والصح يظهران فور الضغط`;
+  totalLi.textContent = `${window.QUESTION_BANK.length} سؤالًا`;
   meta.appendChild(totalLi);
 
   document.getElementById("start-exam").addEventListener("click", startExam);
